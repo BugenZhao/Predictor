@@ -1,13 +1,15 @@
 import ast
 import io
+import time
 
-from PIL import Image
+from PIL import Image, ImageTk
 import tensorflow as tf
 import numpy as np
 import h5py
 import os
 import cv2
-import tkinter
+import tkinter as tk
+from tkinter import ttk
 import tkinter.filedialog
 import tkinter.simpledialog
 import tkinter.messagebox
@@ -18,42 +20,52 @@ from threading import Thread
 class PredictorView(tkinter.Tk):
     def __init__(self, controller):
         super().__init__()
+
         self.controller = controller
         self.model = ''
 
-        self.maxsize(width=400, height=200)
-        self.geometry('400x200')
+        # self.maxsize(width=400, height=400)
+        self.geometry('300x200')
         self.resizable(False, False)
         self.title('BZ Predictor')
 
-        self.button = tkinter.Button(self, text='Predict', height=1, width=6,
-                                     command=self.go)
-        self.button.place(relx=0.50, rely=0.50, anchor='center')
+        self.panel = tk.Label(self, text='Preview', height=8)
+        self.panel.pack()
 
-        self.statusbar = tkinter.Label(
-            self, text='', bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W)
-        self.statusbar.pack(side=tkinter.BOTTOM, fill=tkinter.X)
+        self.button = ttk.Button(self, text='Predict',
+                                 command=self.go)
+        self.button.pack()
+
+        self.statusbar = ttk.Label(self, text='', anchor=tk.W)
+        self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
         self.update_statusbar()
 
         self.create_menu()
 
-    def update_statusbar(self, text=''):
-        if text == '':
+    def update_title(self):
+        self.title('BZ Predictor - ' + self.controller.get_model())
+
+    def update_statusbar(self, text='', final=False):
+        if final:
+            time.sleep(3)
+            self.statusbar.config(text='Ready')
+        elif text == '':
             self.statusbar.config(text='Current: ' + self.controller.get_model())
+            # Thread(target=self.update_statusbar, args=('', True)).start()
         else:
             self.statusbar.config(text=text)
         self.update()
 
     def create_menu(self):
-        menus = ['Predictor']
-        items = [['Set model...', '-', 'Exit']]
-        callbacks = [[self.set_model, None, self.quit]]
-        menubar = tkinter.Menu(self)
+        menus = ['Predictor', 'Help']
+        items = [['Set model...', '-', 'Quit'], ['About']]
+        callbacks = [[self.set_model, None, self.quit], [self.about]]
+        menubar = tk.Menu(self)
         for i, x in enumerate(menus):
-            m = tkinter.Menu(menubar, tearoff=0)
+            m = tk.Menu(menubar, tearoff=0)
             for item, callback in zip(items[i], callbacks[i]):
                 if isinstance(item, list):
-                    sm = tkinter.Menu(menubar, tearoff=0)
+                    sm = tk.Menu(menubar, tearoff=0)
                     for subitem, subcallback in zip(item, callback):
                         if subitem == '-':
                             sm.add_separator()
@@ -71,20 +83,25 @@ class PredictorView(tkinter.Tk):
         self.config(menu=menubar)
 
     def set_model(self):
-        new_model = tkinter.simpledialog.askstring(
+        new_model = tk.simpledialog.askstring(
             title='Set model...', prompt='New model: ')
-        if new_model is not None and new_model != self.model:
-            self.controller.update_model(new_model)
+        if (new_model is not None) and (new_model != self.model):
+            self.model = new_model
+            Thread(target=self.controller.update_model, args=(new_model,)).start()
 
     def go(self):
         cv2.destroyAllWindows()
-        path = tkinter.filedialog.askopenfilename()
+        path = tk.filedialog.askopenfilename()
         data = {
             0: {
                 'bz': path
             }
         }
         self.controller.process(data)
+
+    def about(self):
+        tk_version = self.tk.call('info', 'patchlevel')
+        tk.messagebox.showinfo(message='BZ Predictor in MVC pattern.' + "\n\nTK version: " + tk_version)
 
 
 class PredictorUIModel:
@@ -131,7 +148,6 @@ class PredictorController:
         return self.model
 
     def update_model(self, new_model):
-        print('asdfasdf')
         if new_model is None: return
         self.view.update_statusbar(text='Refreshing...')
         lock = self.ButtonLock(self.view)
@@ -139,10 +155,11 @@ class PredictorController:
         if flag:
             self.model = new_model
         else:
-            tkinter.messagebox.showinfo(
+            tk.messagebox.showerror(
                 title='Oops!', message='There\' s no model named "'
                                        + new_model + '".')
         self.view.update_statusbar()
+        self.view.update_title()
 
     def process(self, data):
         self.view.update_statusbar(text='Processing...')
@@ -157,9 +174,9 @@ class PredictorController:
 
         except Exception as e:
             print(e)
-            self.view.update_statusbar('Last operation was failed or aborted')
+            self.view.update_statusbar('Latest operation was failed or aborted')
 
-        self.view.update_statusbar()
+        # self.view.update_statusbar()
 
     def cv2_show(self, data, predict_result):
         img = cv2.imread(data[0]['bz'])
@@ -170,9 +187,20 @@ class PredictorController:
                           (0, 0, 255), thickness=2)
             cv2.putText(img, str(clazz) + ':' + str(score), (y1, x1), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255),
                         thickness=1)
-        cv2.namedWindow('Result', flags=cv2.WINDOW_AUTOSIZE)
-        cv2.imshow('Result', img)
-        cv2.waitKey(0)
+        # cv2.namedWindow('Result', flags=cv2.WINDOW_AUTOSIZE)
+        # self.view.canvas.create_image(image=Image.fromarray(img))
+        # cv2.imshow('Result', img)
+        # cv2.waitKey(0)
+
+        # self.view.panel.config(image=ImageTk.PhotoImage(image=Image.fromarray(img)))
+
+        cv2image = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)  # convert colors from BGR to RGBA
+        current_image = Image.fromarray(cv2image)  # convert image for PIL
+        imgtk = ImageTk.PhotoImage(image=current_image)  # convert image for tkinter
+        self.view.geometry(str(imgtk.width()) + 'x' + str(imgtk.height() + 50))
+
+        self.view.panel.imgtk = imgtk  # anchor imgtk so it does not be deleted by garbage-collector
+        self.view.panel.config(height=0, image=imgtk)  # show the image
 
 
 class BZPrediction:
